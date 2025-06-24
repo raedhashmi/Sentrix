@@ -1,0 +1,123 @@
+body {
+    background-color: #121212;
+    color: #ffffff;
+    font-family: Arial, Helvetica, sans-serif;
+    margin: 0;
+}
+
+.window-top {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+    background-color: #181818;
+    border-bottom: 2px solid #333;
+    z-index: 1000;
+}
+
+.window-top p {
+    font-size: larger;
+    font-weight: bolder;
+    margin-left: 16px;
+}
+
+.window-top button {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    margin-right: 8px;
+    box-shadow: 0 1px 2px #0002;
+    transition: filter 0.15s;
+}
+
+.close-btn {
+    margin-left: 16px;
+    background: #ff5f56;
+}
+
+.minimize-btn {
+    background: #ffbd2e;
+}
+
+.expand-btn {
+    background: #27c93f;
+}
+
+.window-top button:hover {
+    filter: brightness(1.15) drop-shadow(0 0 2px #fff6);
+    scale: 1.1;
+}
+
+.terminal {
+    padding-left: 12px;
+    margin-top: 22px;
+    font-size: 16px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.input-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+}
+
+.prompt {
+    color: white;
+    white-space: nowrap;
+    padding-top: 4px;
+    font-family: monospace;
+}
+
+.command {
+    font-family: monospace;
+    font-size: 16px;
+    outline: none;
+    margin-top: 4px;
+    width: 100%;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    cursor: text;
+    background: linear-gradient(to right, rgb(206, 206, 0), #fff); /* your gradient */
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+}
+
+.command:focus {
+    caret: block #fff;
+}
+
+pre {
+    color: #ccc;
+    font-family: monospace;
+    white-space: pre-wrap;
+    margin: -60px 0 -40px;
+}
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #121212;
+    border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #888;
+}

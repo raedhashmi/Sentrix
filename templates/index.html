@@ -1,0 +1,28 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="resources/styles.css">
+    <link rel="shortcut icon" href="resources/favicon.ico" type="image/x-icon">
+    <title>Sentrix</title>
+</head>
+<body>
+    <main>
+        <div class="window-top">
+            <button class="close-btn" onclick="fetch('/close')"></button>
+            <button class="minimize-btn" onclick="fetch('/minimize')"></button>
+            <button class="expand-btn" onclick="fetch('/expand')"></button>
+            <p>Sentrix</p>
+        </div>
+
+        <div class="terminal">
+            <div class="input-line">
+                <span class="prompt">guy@sentrix ~ %</span>
+                <div class="command" contenteditable="true" spellcheck="false"></div>
+            </div>
+        </div>
+    </main>
+
+    <script src="resources/script.js"></script>
+</body>
+</html>
