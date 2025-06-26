@@ -46,8 +46,8 @@ def expand():
         window.move(x, y)
     else:
         # Restore to original size/position (adjust as needed)
-        window.resize(1000, 700)
-        window.move(100, 100)
+        window.resize(1200, 600)
+        window.move(100, 70)
 
     return jsonify({"status": "toggled"})
 

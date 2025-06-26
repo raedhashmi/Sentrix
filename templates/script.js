@@ -1,14 +1,14 @@
 const promptUser = localStorage.getItem("account-username") || "User 1";
-const windowTop = document.querySelector('.window-top');
-const terminal = document.querySelector('.terminal');
-const promptEl = document.querySelector('.prompt');
-const input = document.querySelector('.command');
+const windowTop = document.querySelector(".window-top");
+const terminal = document.querySelector(".terminal");
+const promptEl = document.querySelector(".prompt");
+const input = document.querySelector(".command");
 const isEmbedded = window !== window.parent;
 
 let history = JSON.parse(localStorage.getItem("sentrix-history") || "[]");
 let historyIndex = history.length;
-let isMaximized = false;
 let isMacSim = false;
+let isMaximized = false;
 let dragging = false;
 let fakeFS = null;
 let lastX = 0;
@@ -20,7 +20,6 @@ window.addEventListener("message", (event) => {
     window.parent.postMessage({ type: "getFS" }, "*");
     return;
   }
-
   if (event.data.type === "fsSnapshot") {
     try {
       fakeFS = JSON.parse(event.data.fs);
@@ -32,23 +31,23 @@ window.addEventListener("message", (event) => {
 
 window.parent.postMessage("sentrix_handshake", "*");
 
-document.addEventListener('keydown', function (event) {
+document.addEventListener("keydown", (event) => {
   if (event.ctrlKey && event.key === "r") {
     event.preventDefault();
     location.reload();
   }
 });
 
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener("DOMContentLoaded", () => {
   promptEl.innerHTML = getPrompt();
   input.focus();
 
   if (isEmbedded) {
-    windowTop.style.display = 'none';
-    terminal.style.marginTop = '-42px';
+    windowTop.style.display = "none";
+    terminal.style.marginTop = "-42px";
   } else {
-    windowTop.style.display = 'flex';
-    terminal.style.marginTop = '22px';
+    windowTop.style.display = "flex";
+    terminal.style.marginTop = "22px";
   }
 
   if (!isEmbedded) {
@@ -59,7 +58,7 @@ document.addEventListener('DOMContentLoaded', function () {
           { name: "Downloads", type: "folder" },
           { name: "Pictures", type: "folder" },
           { name: "Music", type: "folder" },
-          { name: "Readme.txt", type: "file" }
+          { name: "Readme.txt", type: "file", content: "Welcome to Sentrix!" }
         ],
         "/Documents": [],
         "/Downloads": [],
@@ -81,23 +80,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
 function getPrompt() {
   const cwd = localStorage.getItem("sentrix-cwd") || "/";
-  const shortPath = cwd === "/" ? "~" : cwd.replace(/^\//, '').replace(/\/$/, '');
-  return `${promptUser.toLowerCase().replace(/\s+/g, '')}@sentrix ${shortPath} %`;
+  const short = cwd === "/" ? "~" : cwd.replace(/^\//, "").replace(/\/$/, "");
+  return `${promptUser.toLowerCase().replace(/\s+/g, "")}@sentrix ${short} %`;
 }
 
 function appendTerminalOutput(output) {
-  const prompt = getPrompt();
-
   if (output && output.trim() !== "") {
     terminal.innerHTML += `<pre class="terminal-output">${output}</pre>`;
   }
-
   terminal.innerHTML += `
     <div class="input-line">
-      <span class="prompt">${prompt}</span>
+      <span class="prompt">${getPrompt()}</span>
       <div class="command" contenteditable="true" spellcheck="false"></div>
-    </div>
-  `;
+    </div>`;
 
   const newInput = terminal.querySelectorAll(".command");
   const currentInput = newInput[newInput.length - 1];
@@ -105,10 +100,126 @@ function appendTerminalOutput(output) {
   attachInputListeners(currentInput);
 }
 
+function handleFSCommand(command, cwd) {
+  const parts = command.trim().split(/\s+/);
+  const cmd = parts[0];
+  const args = parts.slice(1);
+  let output = "";
+  const fs = fakeFS;
+
+  if (cmd === "ls") {
+    const path = args[0] || cwd;
+    output = (fs[path] || []).map(i => i.name).join("  ");
+  }
+
+  else if (cmd === "cd") {
+    const name = args[0];
+    const newPath = !name || name === "/" ? "/" : (cwd === "/" ? `/${name}` : `${cwd}/${name}`);
+    if (fs[newPath]) {
+      localStorage.setItem("sentrix-cwd", newPath);
+    } else {
+      output = `cd: no such directory: ${name}`;
+    }
+  }
+
+  else if (cmd === "mkdir") {
+    const name = args[0];
+    const newPath = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
+    if (!name) {
+      output = "mkdir: missing operand";
+    } else if (fs[newPath]) {
+      output = `mkdir: cannot create '${name}': exists`;
+    } else {
+      fs[cwd] = fs[cwd] || [];
+      fs[cwd].push({ name, type: "folder" });
+      fs[newPath] = [];
+    }
+  }
+
+  else if (cmd === "rm" || cmd === "rmdir") {
+    const name = args[0];
+    const target = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
+    if (!name) {
+      output = `${cmd}: missing operand`;
+    } else {
+      fs[cwd] = (fs[cwd] || []).filter(f => f.name !== name);
+      Object.keys(fs).forEach(k => {
+        if (k === target || k.startsWith(target + "/")) delete fs[k];
+      });
+    }
+  }
+
+  else if (cmd === "touch") {
+    const name = args[0];
+    const path = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
+    if (!name) {
+      output = "touch: missing operand";
+    } else {
+      fs[cwd] = fs[cwd] || [];
+      if (!fs[cwd].some(i => i.name === name)) {
+        fs[cwd].push({ name, type: "file", content: "" });
+        fs[path] = null;
+      }
+    }
+  }
+
+  else if (cmd === "echo") {
+    output = args.join(" ");
+  }
+
+  else if (cmd === "cat") {
+    const name = args[0];
+    const file = (fs[cwd] || []).find(i => i.name === name && i.type === "file");
+    output = file ? (file.content || "") : `cat: ${name}: No such file`;
+  }
+
+  else if (cmd === "edit") {
+    const name = args[0];
+    const content = args.slice(1).join(" ");
+    const file = (fs[cwd] || []).find(i => i.name === name && i.type === "file");
+    if (file) file.content = content;
+    else output = `edit: ${name}: No such file`;
+  }
+
+  else if (cmd === "mv") {
+    const [oldName, newName] = args;
+    const file = (fs[cwd] || []).find(i => i.name === oldName);
+    if (file) file.name = newName;
+    else output = `mv: ${oldName}: No such file or directory`;
+  }
+
+  else if (cmd === "cp") {
+    const [source, target] = args;
+    const file = (fs[cwd] || []).find(i => i.name === source);
+    if (file) {
+      const copy = JSON.parse(JSON.stringify(file));
+      copy.name = target;
+      fs[cwd].push(copy);
+    } else {
+      output = `cp: ${source}: No such file or directory`;
+    }
+  }
+
+  else if (cmd === "?" || cmd === "help") {
+    output = "Supported commands:\nls, cd, mkdir, rm, touch, echo, cat, edit, mv, cp, ?";
+  }
+
+  else {
+    output = `Command not found: ${cmd}`;
+  }
+
+  if (isMacSim) {
+    window.parent.postMessage({ type: "updateFS", fs }, "*");
+  } else {
+    localStorage.setItem("finder-fakeFS", JSON.stringify(fs));
+  }
+
+  appendTerminalOutput(output);
+}
+
 function sendCommand(inputEl) {
   const command = inputEl.innerText.trim();
   const cwd = localStorage.getItem("sentrix-cwd") || "/";
-
   if (!command) return;
 
   history.push(command);
@@ -129,186 +240,55 @@ function sendCommand(inputEl) {
     .then(res => res.json())
     .then(data => {
       localStorage.setItem("sentrix-cwd", data.cwd || cwd);
-
-      if (data.output === "__fs_request__") {
-        handleFSCommand(command, cwd);
-      } else if (data.output === "__clear__") {
-        terminal.innerHTML = "";
-      } else {
-        appendTerminalOutput(data.output);
-      }
+      if (data.output === "__fs_request__") handleFSCommand(command, cwd);
+      else if (data.output === "__clear__") terminal.innerHTML = "";
+      else appendTerminalOutput(data.output);
     });
 }
 
-function handleFSCommand(command, cwd) {
-  const parts = command.split(/\s+/);
-  const cmd = parts[0];
-  const args = parts.slice(1);
-  let output = "";
-  const fs = fakeFS;
+function expandWin() {
+  fetch("/expand", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ maximize: !isMaximized })
+  });
 
-  if (cmd === "?") {
-    output = `Commands:\ncd, ls, mkdir, rm, rmdir, touch, cat, clear, echo, edit, mv, cp`;
-  }
+  isMaximized = !isMaximized;
+}
 
-  else if (cmd === "ls") {
-    const path = args[0] || cwd;
-    output = (fs[path] || []).map(i => i.name).join("  ");
-  }
+windowTop.addEventListener("mousedown", (e) => {
+  dragging = true;
+  lastX = e.screenX;
+  lastY = e.screenY;
+  document.addEventListener("mousemove", dragWindow);
+  document.addEventListener("mouseup", stopDragging);
+});
 
-  else if (cmd === "mkdir") {
-    const name = args[0];
-    const newPath = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
+function dragWindow(e) {
+  if (!dragging) return;
+  const dx = e.screenX - lastX;
+  const dy = e.screenY - lastY;
+  moveWin(dx, dy);
+  lastX = e.screenX;
+  lastY = e.screenY;
+}
 
-    if (!name) {
-      output = "mkdir: missing operand";
-    } else if (fs[newPath]) {
-      output = `mkdir: cannot create directory '${name}': File exists`;
-    } else {
-      if (!fs[cwd]) fs[cwd] = [];
-      fs[cwd].push({ name, type: "folder" });
-      fs[newPath] = [];
-      output = "";
-    }
-  }
+function stopDragging() {
+  dragging = false;
+  document.removeEventListener("mousemove", dragWindow);
+  document.removeEventListener("mouseup", stopDragging);
+}
 
-  else if (cmd === "rm" || cmd === "rmdir") {
-    const name = args[0];
-    const target = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
-
-    if (!name) {
-      output = `${cmd}: missing operand`;
-    } else {
-      if (!fs[cwd]) fs[cwd] = [];
-      fs[cwd] = fs[cwd].filter(f => f.name !== name);
-      Object.keys(fs).forEach(k => {
-        if (k === target || k.startsWith(target + "/")) delete fs[k];
-      });
-      output = "";
-    }
-  }
-
-  else if (cmd === "touch") {
-    const name = args[0];
-    const newPath = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
-
-    if (!name) {
-      output = "touch: missing file operand";
-    } else {
-      if (!fs[cwd]) fs[cwd] = [];
-      const exists = fs[cwd].some(i => i.name === name);
-      if (!exists) {
-        fs[cwd].push({ name, type: "file" });
-        fs[newPath] = { content: "" };
-      }
-      output = "";
-    }
-  }
-
-  else if (cmd === "cat") {
-    const name = args[0];
-    const key = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
-    const exists = fs[cwd]?.some(i => i.name === name && i.type === "file");
-
-    if (!name) {
-      output = "cat: missing file operand";
-    } else {
-      output = exists ? (fs[key]?.content || "(empty file)") : `cat: ${name}: No such file`;
-    }
-  }
-
-  else if (cmd === "edit") {
-    const name = args[0];
-    const key = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
-    const exists = fs[cwd]?.some(i => i.name === name && i.type === "file");
-
-    if (!name) {
-      output = "edit: missing file operand";
-    } else if (!exists) {
-      output = `edit: ${name}: No such file`;
-    } else {
-      const content = fs[key]?.content || "";
-      const newContent = prompt(`Editing ${name}:`, content);
-      if (newContent !== null) {
-        fs[key].content = newContent;
-      }
-      output = "";
-    }
-  }
-
-  else if (cmd === "cd") {
-    const name = args[0];
-    let newPath;
-
-    if (!name || name === "/") {
-      newPath = "/";
-    } else {
-      newPath = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
-    }
-
-    if (!fs[newPath]) {
-      output = `cd: no such file or directory: ${name}`;
-    } else {
-      localStorage.setItem("sentrix-cwd", newPath);
-      output = "";
-    }
-  }
-
-  else if (cmd === "mv") {
-    const [source, target] = args;
-    const srcPath = cwd === "/" ? `/${source}` : `${cwd}/${source}`;
-    const tgtPath = cwd === "/" ? `/${target}` : `${cwd}/${target}`;
-
-    if (!source || !target) {
-      output = "mv: missing file operand";
-    } else if (!fs[srcPath] && !fs[cwd]?.some(i => i.name === source)) {
-      output = `mv: cannot stat '${source}': No such file or directory`;
-    } else {
-      if (fs[srcPath]) {
-        fs[tgtPath] = fs[srcPath];
-        delete fs[srcPath];
-      }
-      if (fs[cwd]) {
-        fs[cwd].forEach(i => {
-          if (i.name === source) i.name = target;
-        });
-      }
-      output = "";
-    }
-  }
-
-  else if (cmd === "cp") {
-    const [source, target] = args;
-    const srcPath = cwd === "/" ? `/${source}` : `${cwd}/${source}`;
-    const tgtPath = cwd === "/" ? `/${target}` : `${cwd}/${target}`;
-
-    if (!source || !target) {
-      output = "cp: missing file operand";
-    } else if (!fs[srcPath] && !fs[cwd]?.some(i => i.name === source)) {
-      output = `cp: cannot stat '${source}': No such file or directory`;
-    } else {
-      if (fs[srcPath]) {
-        fs[tgtPath] = JSON.parse(JSON.stringify(fs[srcPath]));
-      }
-      if (fs[cwd]) {
-        const item = fs[cwd].find(i => i.name === source);
-        if (item) fs[cwd].push({ ...item, name: target });
-      }
-      output = "";
-    }
-  }
-
-  if (isMacSim) {
-    window.parent.postMessage({ type: "updateFS", fs }, "*");
-  } else {
-    localStorage.setItem("finder-fakeFS", JSON.stringify(fs));
-  }
-
-  appendTerminalOutput(output);
+function moveWin(dx, dy) {
+  fetch("/move_win", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dx, dy })
+  });
 }
 
 function attachInputListeners(inputEl) {
-  inputEl.addEventListener("keydown", function (event) {
+  inputEl.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       sendCommand(inputEl);
@@ -336,16 +316,6 @@ function attachInputListeners(inputEl) {
       event.preventDefault();
     }
   });
-}
-
-function expandWin() {
-  fetch("/expand", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ maximize: !isMaximized })
-  });
-
-  isMaximized = !isMaximized;
 }
 
 function placeCaretAtEnd(el) {
