@@ -1,141 +1,90 @@
 from flask import Flask, jsonify, send_file, request
 import subprocess
 import webview
-import json
+import screeninfo
 import time
 import os
 
 app = Flask(__name__)
-# Check if Sentrix is embedded inside Mac Simulation (simplified check)
+
 def is_mac_simulation(req):
-    # Add stricter checks in production
-    return 'Referer' in req.headers and 'mac-simulation' in req.headers['Referer']
+    return req.headers.get("X-Embed-Source") == "mac-simulation"
 
-# Fake file system (used only if inside Mac Simulation)
-FAKE_FS_PATH = 'fakefs.json'
-
-def load_fake_fs():
-    if os.path.exists(FAKE_FS_PATH):
-        with open(FAKE_FS_PATH, 'r') as f:
-            return json.load(f)
-    return {
-        "/": [
-            {"name": "Documents", "type": "folder"},
-            {"name": "Downloads", "type": "folder"},
-            {"name": "Pictures", "type": "folder"},
-            {"name": "Videos", "type": "folder"},
-        ],
-        "/Documents": [],
-        "/Downloads": [],
-        "/Pictures": [],
-        "/Videos": []
-    }
-
-def save_fake_fs(fs):
-    with open(FAKE_FS_PATH, 'w') as f:
-        json.dump(fs, f)
-
-@app.route('/')
+@app.route("/")
 def index():
     return send_file('templates/index.html')
 
-@app.route('/resources/<path:filename>')
+@app.route("/resources/<path:filename>")
 def resources(filename):
     return send_file(f'templates/{filename}')
 
-@app.route('/close', methods=['GET'])
+@app.route("/close", methods=["GET"])
 def close():
     window.destroy()
-
     return 'Success'
 
-@app.route('/minimize', methods=['GET'])
+@app.route("/minimize", methods=["GET"])
 def minimize():
     window.minimize()
-
     return 'Success'
 
-@app.route('/expand', methods=['GET'])
+@app.route("/expand", methods=["POST"])
 def expand():
-    if window.maximized == False:
-        window.maximize()
-    elif window.maximized == True:
-        window.maximize()
+    data = request.get_json()
+    maximize = data.get("maximize", True)
 
-    return 'Success'
+    if maximize:
+        screen = screeninfo.get_monitors()[0]
+        width = screen.width
+        height = screen.height
+        x = screen.x
+        y = screen.y
+
+        # Adjust to avoid taskbar (typically ~40px high on Windows)
+        taskbar_offset = 40
+        window.resize(width, height - taskbar_offset)
+        window.move(x, y)
+    else:
+        # Restore to original size/position (adjust as needed)
+        window.resize(1000, 700)
+        window.move(100, 100)
+
+    return jsonify({"status": "toggled"})
 
 @app.route("/run", methods=["POST"])
 def run():
     data = request.get_json()
     command = data.get("command", "").strip()
-    cwd = data.get("cwd", "/")  # default to root if not sent
-    is_macsim = is_mac_simulation(request)
+    cwd = data.get("cwd", "/")
 
-    if is_macsim:
-        fs = load_fake_fs()
-        parts = command.split()
-        output = ""
+    print("\u001b[35m[-] Received command:", command, "| cwd:", cwd, "\u001b[0m")
 
-        if not parts:
-            return jsonify({"output": "", "cwd": cwd})
+    parts = command.split()
+    output = ""
 
-        cmd = parts[0]
-        args = parts[1:]
+    if not parts:
+        return jsonify({"output": "", "cwd": cwd})
 
-        if cmd == "ls":
-            path = args[0] if args else cwd
-            items = fs.get(path, [])
-            output = "  ".join(i['name'] for i in items)
+    cmd = parts[0]
+    args = parts[1:]
 
-        elif cmd == "mkdir":
-            if not args:
-                output = "mkdir: missing operand"
-            else:
-                name = args[0]
-                new_path = cwd + "/" + name if cwd != "/" else f"/{name}"
-                if new_path in fs:
-                    output = f"mkdir: cannot create directory '{name}': File exists"
-                else:
-                    fs[cwd].append({"name": name, "type": "folder"})
-                    fs[new_path] = []
-                    output = ""
+    if cmd == "pwd":
+        output = cwd
 
-        elif cmd in ["rm", "rmdir"]:
-            if not args:
-                output = f"{cmd}: missing operand"
-            else:
-                name = args[0]
-                target = cwd + "/" + name if cwd != "/" else f"/{name}"
-                exists = any(f['name'] == name for f in fs.get(cwd, []))
-                if not exists:
-                    output = f"{cmd}: cannot remove '{name}': No such file or directory"
-                else:
-                    fs[cwd] = [f for f in fs[cwd] if f['name'] != name]
-                    keys_to_remove = [k for k in fs if k == target or k.startswith(target + "/")]
-                    for k in keys_to_remove:
-                        del fs[k]
-                    output = ""
-
-        elif cmd == "pwd":
-            output = cwd
-
-        elif cmd == "cd":
-            if not args:
-                cwd = "/"
-            else:
-                raw = args[0]
-                new_path = os.path.normpath(os.path.join(cwd, raw)).replace("\\", "/")
-                if new_path not in fs:
-                    output = f"cd: no such file or directory: {raw}"
-                else:
-                    cwd = new_path
-                    output = ""
-
+    elif cmd == "cd":
+        if not args:
+            cwd = "/"
         else:
-            output = f"command not found: {cmd}"
+            raw = args[0]
+            new_path = os.path.normpath(os.path.join(cwd, raw)).replace("\\", "/")
+            cwd = new_path
+            output = ""
 
-        save_fake_fs(fs)
-        return jsonify({"output": output, "cwd": cwd})
+    elif cmd == "ls" or cmd == "mkdir" or cmd == "rm" or cmd == "rmdir" or cmd == "touch" or cmd == "cat" or cmd == "mv" or cmd == "cp" or cmd == "edit" or cmd == "?" or cmd == 'clear':
+        output = "__fs_request__"
+
+    elif cmd == "echo":
+        output = " ".join(args)
 
     else:
         try:
@@ -144,13 +93,21 @@ def run():
         except Exception as e:
             output = str(e)
 
-        return jsonify({"output": output})
+    return jsonify({"output": output, "cwd": cwd})
+
+@app.route("/move_win", methods=["POST"])
+def move_win():
+    data = request.get_json()
+    dx = data.get("dx", 0)
+    dy = data.get("dy", 0)
+    window.move(window.x + dx, window.y + dy)
+    return jsonify({"status": "success"})
 
 if __name__ == '__main__':
-    print('\u001b[32m[✓] Powering up Sentrix...')
+    print('\u001b[32m[/] Powering up Sentrix...')
     time.sleep(1)
-    print('\u001b[34m[•] Sentrix backend initialized successfully.')
-    print('\u001b[36m[→] Running at http://localhost:3000\u001b[0m')
+    print('\u001b[34m[-] Sentrix backend initialized successfully.')
+    print('\u001b[36m[~] Running at http://localhost:8000\u001b[0m')
     window = webview.create_window(
         'Sentrix',
         app,
@@ -159,6 +116,6 @@ if __name__ == '__main__':
         frameless=True,
         resizable=True,
         easy_drag=True,
-        http_port=3000
+        http_port=8000
     )
     webview.start()
