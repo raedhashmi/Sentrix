@@ -80,7 +80,24 @@ def run():
             cwd = new_path
             output = ""
 
-    elif cmd == "ls" or cmd == "mkdir" or cmd == "rm" or cmd == "rmdir" or cmd == "touch" or cmd == "cat" or cmd == "mv" or cmd == "cp" or cmd == "edit" or cmd == "?" or cmd == 'clear':
+    elif cmd == "?" or cmd == "help":
+        output = (
+            "Supported Commands:\n"
+            "ls           - List files and directories\n"
+            "cd           - Change directory\n"
+            "pwd          - Show current directory\n"
+            "mkdir &lt;name&gt; - Make new folder\n"
+            "touch &lt;file&gt; - Create empty file\n"
+            "cat &lt;file&gt;   - Show file contents\n"
+            "echo &lt;msg&gt;   - Print message\n"
+            "mission      - Display the <span color='#e67f00'>mission</span> system\n"
+            "cd ..        - Go up one folder\n"
+            "color &lt;hex&gt;  - Changes the color of Sentrix\n"
+            "download     - Download the Sentrix app (Windows only)\n"
+            "? or help    - Show this help menu"
+        )
+
+    elif cmd == "ls" or cmd == "mkdir" or cmd == "rm" or cmd == "rmdir" or cmd == "touch" or cmd == "cat" or cmd == "mv" or cmd == "cp" or cmd == "edit" or cmd == 'clear' or cmd == 'download' or cmd == 'color' or cmd == 'mission':
         output = "__fs_request__"
 
     elif cmd == "echo":
@@ -102,6 +119,13 @@ def move_win():
     dy = data.get("dy", 0)
     window.move(window.x + dx, window.y + dy)
     return jsonify({"status": "success"})
+
+@app.route("/download_exe", methods=["GET"])
+def download_exe():
+    exe_path = os.path.join("dist", "Sentrix.exe")
+    if os.path.exists(exe_path):
+        return send_file(exe_path, as_attachment=True)
+    return "Sentrix.exe not found", 404
 
 if __name__ == '__main__':
     print('\u001b[32m[/] Powering up Sentrix...')

@@ -86,7 +86,7 @@ function getPrompt() {
 
 function appendTerminalOutput(output) {
   if (output && output.trim() !== "") {
-    terminal.innerHTML += `<pre class="terminal-output">${output}</pre>`;
+    terminal.innerHTML += `<pre>${output}</pre>`;
   }
   terminal.innerHTML += `
     <div class="input-line">
@@ -102,17 +102,84 @@ function appendTerminalOutput(output) {
 
 function handleFSCommand(command, cwd) {
   const parts = command.trim().split(/\s+/);
-  const cmd = parts[0];
   const args = parts.slice(1);
-  let output = "";
+  const cmd = parts[0];
   const fs = fakeFS;
+  let output = "";
+
+  const saveFS = () => {
+    if (isMacSim) {
+      window.parent.postMessage({ type: "updateFS", fs }, "*");
+    } else {
+      localStorage.setItem("finder-fakeFS", JSON.stringify(fs));
+    }
+  };
+
+  const saveMissionState = (state) => {
+    localStorage.setItem("mission-state", JSON.stringify(state));
+  };
+
+  const getMissionState = () => {
+    return JSON.parse(localStorage.getItem("mission-state") || "null");
+  };
+
+  const levelNames = [
+    "Primitive", "Ramshackle", "Apprentice", "Journeyman", "Mastercraft", "Ascendant"
+  ];
+
+  const missions = [
+    { desc: "Create a folder named 'web'", check: () => fs["/web"] !== undefined, xp: 10 },
+    { desc: "Inside 'web', create 'index.html'", check: () => (fs["/web"] || []).some(f => f.name === "index.html"), xp: 15 },
+    { desc: "Edit 'index.html' to contain basic HTML", check: () => {
+      const file = (fs["/web"] || []).find(f => f.name === "index.html");
+      return file && file.content.includes("<html>");
+    }, xp: 20 },
+    { desc: "Make a folder named 'scripts'", check: () => fs["/scripts"] !== undefined, xp: 10 },
+    { desc: "Create a file 'main.js' in 'scripts'", check: () => (fs["/scripts"] || []).some(f => f.name === "main.js"), xp: 15 }
+  ];
+
+  if (cmd === "mission") {
+    const arg = args[0];
+    let mission = getMissionState();
+
+    if (!arg) {
+      output = `<span style="color:#cccc">Usage:</span>
+mission <span style="color:#33cc33">start</span> – Begin the mission
+mission <span style="color:#ffcc00">current</span> – Show progress
+mission <span style="color:#ff4444">quit</span> – Abandon the mission`;
+    } else if (arg === "start") {
+      mission = { index: 0, xp: 0, level: 0, active: true };
+      saveMissionState(mission);
+      output = `<span style="color:#33cc33">Mission 1/5:</span> ${missions[0].desc}`;
+    } else if (arg === "quit") {
+      localStorage.removeItem("mission-state");
+      appendTerminalOutput("Mission abandoned.</span>");
+    } else if (arg === "resume") {
+      if (mission && mission.active) {
+        const m = missions[mission.index];
+        output = `<span style="color:#33cc33">Mission ${mission.index + 1}/5:</span> ${m.desc}`;
+      } else {
+        output = `<span style="color:#ffaa00">No active mission to resume.</span>`;
+      }
+    } else if (arg === "current") {
+      if (mission && mission.active) {
+        const m = missions[mission.index];
+        output = `<span style="color:#33cc33">Mission ${mission.index + 1}/5:</span> ${m.desc}`;
+      } else {
+        output = `<span style="color:#ffaa00">No active mission right now.</span>`;
+      }
+    } else {
+      appendTerminalOutput("Invalid mission argument</span>");
+    }
+
+    appendTerminalOutput(output);
+    return;
+  }
 
   if (cmd === "ls") {
     const path = args[0] || cwd;
     output = (fs[path] || []).map(i => i.name).join("  ");
-  }
-
-  else if (cmd === "cd") {
+  } else if (cmd === "cd") {
     const name = args[0];
     const newPath = !name || name === "/" ? "/" : (cwd === "/" ? `/${name}` : `${cwd}/${name}`);
     if (fs[newPath]) {
@@ -120,9 +187,7 @@ function handleFSCommand(command, cwd) {
     } else {
       output = `cd: no such directory: ${name}`;
     }
-  }
-
-  else if (cmd === "mkdir") {
+  } else if (cmd === "mkdir") {
     const name = args[0];
     const newPath = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
     if (!name) {
@@ -134,9 +199,7 @@ function handleFSCommand(command, cwd) {
       fs[cwd].push({ name, type: "folder" });
       fs[newPath] = [];
     }
-  }
-
-  else if (cmd === "rm" || cmd === "rmdir") {
+  } else if (cmd === "rm" || cmd === "rmdir") {
     const name = args[0];
     const target = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
     if (!name) {
@@ -147,9 +210,7 @@ function handleFSCommand(command, cwd) {
         if (k === target || k.startsWith(target + "/")) delete fs[k];
       });
     }
-  }
-
-  else if (cmd === "touch") {
+  } else if (cmd === "touch") {
     const name = args[0];
     const path = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
     if (!name) {
@@ -161,34 +222,24 @@ function handleFSCommand(command, cwd) {
         fs[path] = null;
       }
     }
-  }
-
-  else if (cmd === "echo") {
+  } else if (cmd === "echo") {
     output = args.join(" ");
-  }
-
-  else if (cmd === "cat") {
+  } else if (cmd === "cat") {
     const name = args[0];
     const file = (fs[cwd] || []).find(i => i.name === name && i.type === "file");
     output = file ? (file.content || "") : `cat: ${name}: No such file`;
-  }
-
-  else if (cmd === "edit") {
+  } else if (cmd === "edit") {
     const name = args[0];
     const content = args.slice(1).join(" ");
     const file = (fs[cwd] || []).find(i => i.name === name && i.type === "file");
     if (file) file.content = content;
     else output = `edit: ${name}: No such file`;
-  }
-
-  else if (cmd === "mv") {
+  } else if (cmd === "mv") {
     const [oldName, newName] = args;
     const file = (fs[cwd] || []).find(i => i.name === oldName);
     if (file) file.name = newName;
     else output = `mv: ${oldName}: No such file or directory`;
-  }
-
-  else if (cmd === "cp") {
+  } else if (cmd === "cp") {
     const [source, target] = args;
     const file = (fs[cwd] || []).find(i => i.name === source);
     if (file) {
@@ -198,13 +249,15 @@ function handleFSCommand(command, cwd) {
     } else {
       output = `cp: ${source}: No such file or directory`;
     }
-  }
-
-  else if (cmd === "?" || cmd === "help") {
-    output = "Supported commands:\nls, cd, mkdir, rm, touch, echo, cat, edit, mv, cp, ?";
-  }
-
-  else {
+  } else if (cmd === "clear") {
+    terminal.innerHTML = ''
+  } else if (cmd === "download") {
+    const link = document.createElement("a");
+    link.href = "/download_exe";
+    link.download = "Sentrix.exe";
+    link.click();
+    output = "Thank you for dowwloading Sentrix. Your download should begin shortly.";
+  } else {
     output = `Command not found: ${cmd}`;
   }
 
@@ -214,17 +267,39 @@ function handleFSCommand(command, cwd) {
     localStorage.setItem("finder-fakeFS", JSON.stringify(fs));
   }
 
+  let mission = getMissionState();
+  if (mission && mission.active) {
+    const m = missions[mission.index];
+    if (m && m.check()) {
+      mission.xp += m.xp;
+      mission.index++;
+      if (mission.index >= missions.length) {
+        mission.level++;
+        mission.index = 0;
+        output += `\n<span style="color:#00ccff">🎉 Level up! You're now '${levelNames[mission.level] || "Maxed Out"}'</span>`;
+      } else {
+        output += `\n<span style="color:#66ff66">✔ Mission Complete!</span>`;
+        output += `\n<span style="color:#33cc33">Mission ${mission.index + 1}/${missions.length}:</span> ${missions[mission.index].desc}`;
+      }
+      saveMissionState(mission);
+    }
+  }
+
+  saveFS();
   appendTerminalOutput(output);
 }
 
 function sendCommand(inputEl) {
   const command = inputEl.innerText.trim();
   const cwd = localStorage.getItem("sentrix-cwd") || "/";
+
   if (!command) return;
 
-  history.push(command);
-  historyIndex = history.length;
-  localStorage.setItem("sentrix-history", JSON.stringify(history));
+  if (history[history.length - 1] !== command) {
+    history.push(command);
+    localStorage.setItem("sentrix-history", JSON.stringify(history));
+    historyIndex = history.length;
+  }
 
   inputEl.innerText = command;
   inputEl.contentEditable = "false";
@@ -241,7 +316,6 @@ function sendCommand(inputEl) {
     .then(data => {
       localStorage.setItem("sentrix-cwd", data.cwd || cwd);
       if (data.output === "__fs_request__") handleFSCommand(command, cwd);
-      else if (data.output === "__clear__") terminal.innerHTML = "";
       else appendTerminalOutput(data.output);
     });
 }
