@@ -61,11 +61,25 @@ body {
     white-space: pre-wrap;
 }
 
+.help-text {
+    display: flex;
+    color: #ccc;
+    margin: 4px 0 -50px;
+    font-family: monospace;
+}
+
 .input-line {
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    width: 100%;
+}
+
+.input-line {
+  margin-top: 6px;
+}
+
+.input-line:first-child {
+  margin-top: 0;
 }
 
 .prompt {
@@ -82,10 +96,7 @@ body {
     margin-top: 4px;
     width: 100%;
     white-space: pre-wrap;
-    word-break: break-word;
     line-height: 1.5;
-    overflow-x: hidden;
-    overflow-y: hidden;
     cursor: text;
 }
 

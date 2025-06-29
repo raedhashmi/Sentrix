@@ -42,6 +42,22 @@ document.addEventListener("DOMContentLoaded", () => {
   promptEl.innerHTML = getPrompt();
   input.focus();
 
+  if (localStorage.getItem('sentrix-terminal-history')) {
+    terminal.innerHTML = localStorage.getItem('sentrix-terminal-history');
+    const latestInput = terminal.querySelector(".input-line:last-child .command");
+    if (latestInput) attachInputListeners(latestInput);
+    latestInput.focus()
+
+    const latestPrompt = terminal.querySelector(".input-line:last-child .prompt");
+    if (latestPrompt) latestPrompt.innerHTML = getPrompt();
+    const scrollHeight = document.body.scrollHeight + 10000
+    window.scrollTo({
+      top: scrollHeight,
+      behavior: 'smooth' 
+    });
+  }
+
+
   if (isEmbedded) {
     windowTop.style.display = "none";
     terminal.style.marginTop = "-42px";
@@ -98,7 +114,66 @@ function appendTerminalOutput(output) {
   const currentInput = newInput[newInput.length - 1];
   currentInput.focus();
   attachInputListeners(currentInput);
+  localStorage.setItem('sentrix-terminal-history', terminal.innerHTML)
 }
+
+function normalizePath(path) {
+  const parts = path.split("/").filter(p => p && p !== ".");
+  const stack = [];
+  for (const part of parts) {
+    if (part === "..") {
+      stack.pop();
+    } else {
+      stack.push(part);
+    }
+  }
+  return "/" + stack.join("/");
+}
+
+function resolvePath(cwd, rawPath) {
+  if (!rawPath) return cwd;
+  if (rawPath.startsWith("/")) return rawPath;
+  return normalizePath(cwd === "/" ? `/${rawPath}` : `${cwd}/${rawPath}`);
+}
+
+function getParentPath(path) {
+  const parts = path.split("/").filter(Boolean);
+  parts.pop();
+  return "/" + parts.join("/");
+}
+
+function getFileFromPath(fs, fullPath) {
+  const parent = getParentPath(fullPath);
+  const fileName = fullPath.split("/").pop();
+  const dir = fs[parent];
+  return dir ? dir.find(f => f.name === fileName) : null;
+}
+
+function deleteFileFromPath(fs, fullPath) {
+  const parent = getParentPath(fullPath);
+  const fileName = fullPath.split("/").pop();
+  if (fs[parent]) {
+    fs[parent] = fs[parent].filter(f => f.name !== fileName);
+  }
+}
+
+function applyObfAnimation() {
+  const el = document.querySelector(".special-animation .obf");
+  if (!el) return;
+
+  const chars = "あいうえおかきくけこがぎぐげごさしすせそざじずぜぞたちつてとだぢづでどなにぬねのはひふへほばびぶべぼぱぴぷぺぽまみむめもやゆよらりるれろわをん/";
+  const original = "__special__";
+
+  clearInterval(window.__obfTimer);
+  window.__obfTimer = setInterval(() => {
+    let scrambled = "";
+    for (let i = 0; i < original.length; i++) {
+      scrambled += chars[Math.floor(Math.random() * chars.length)];
+    }
+    el.textContent = scrambled;
+  }, 75);
+}
+
 
 function handleFSCommand(command, cwd) {
   const parts = command.trim().split(/\s+/);
@@ -124,18 +199,93 @@ function handleFSCommand(command, cwd) {
   };
 
   const levelNames = [
-    "Primitive", "Ramshackle", "Apprentice", "Journeyman", "Mastercraft", "Ascendant"
+    "Primitive", "Ramshackle", "Apprentice", "Journeyman",
+    "Mastercraft", "Ascendant", "__special__"
   ];
 
-  const missions = [
-    { desc: "Create a folder named 'web'", check: () => fs["/web"] !== undefined, xp: 10 },
-    { desc: "Inside 'web', create 'index.html'", check: () => (fs["/web"] || []).some(f => f.name === "index.html"), xp: 15 },
-    { desc: "Edit 'index.html' to contain basic HTML", check: () => {
-      const file = (fs["/web"] || []).find(f => f.name === "index.html");
-      return file && file.content.includes("<html>");
-    }, xp: 20 },
-    { desc: "Make a folder named 'scripts'", check: () => fs["/scripts"] !== undefined, xp: 10 },
-    { desc: "Create a file 'main.js' in 'scripts'", check: () => (fs["/scripts"] || []).some(f => f.name === "main.js"), xp: 15 }
+  const allLevels = [
+    [
+      { desc: "Create a folder named 'web'", check: () => fs["/web"] !== undefined, xp: 10 },
+      { desc: "Inside 'web', create 'index.html'", check: () => (fs["/web"] || []).some(f => f.name === "index.html"), xp: 15 },
+      { desc: "Edit 'index.html' to contain basic HTML", check: () => {
+        const file = (fs["/web"] || []).find(f => f.name === "index.html");
+        return file && file.content.includes("<html>");
+      }, xp: 20 },
+      { desc: "Make a folder named 'scripts'", check: () => fs["/scripts"] !== undefined, xp: 10 },
+      { desc: "Create a file 'main.js' in 'scripts'", check: () => (fs["/scripts"] || []).some(f => f.name === "main.js"), xp: 15 }
+    ],
+    [
+      { desc: "Create a folder named 'notes'", check: () => fs["/notes"] !== undefined, xp: 10 },
+      { desc: "Create 'todo.txt' inside 'notes'", check: () => (fs["/notes"] || []).some(f => f.name === "todo.txt"), xp: 15 },
+      { desc: "Write something in 'todo.txt'", check: () => {
+        const file = (fs["/notes"] || []).find(f => f.name === "todo.txt");
+        return file && file.content.length > 0;
+      }, xp: 15 },
+      { desc: "Rename 'todo.txt' to 'tasks.txt'", check: () => (fs["/notes"] || []).some(f => f.name === "tasks.txt"), xp: 10 },
+      { desc: "Copy 'tasks.txt' to root", check: () => (fs["/"] || []).some(f => f.name === "tasks.txt"), xp: 10 }
+    ],
+    [
+      { desc: "Make a folder called 'projects'", check: () => fs["/projects"] !== undefined, xp: 10 },
+      { desc: "Inside 'projects', create 'sentrix.txt'", check: () => (fs["/projects"] || []).some(f => f.name === "sentrix.txt"), xp: 15 },
+      { desc: "Write 'Hello Sentrix' in 'sentrix.txt'", check: () => {
+        const file = (fs["/projects"] || []).find(f => f.name === "sentrix.txt");
+        return file && file.content.includes("Hello Sentrix");
+      }, xp: 15 },
+      { desc: "Rename 'sentrix.txt' to 'terminal.txt'", check: () => (fs["/projects"] || []).some(f => f.name === "terminal.txt"), xp: 10 },
+      { desc: "Move 'terminal.txt' to root", check: () => (fs["/"] || []).some(f => f.name === "terminal.txt"), xp: 10 }
+    ],
+    [
+      { desc: "Create folder 'data'", check: () => fs["/data"] !== undefined, xp: 10 },
+      { desc: "Inside 'data', create 'log.txt'", check: () => (fs["/data"] || []).some(f => f.name === "log.txt"), xp: 10 },
+      { desc: "Write 'log initialized' in 'log.txt'", check: () => {
+        const file = (fs["/data"] || []).find(f => f.name === "log.txt");
+        return file && file.content.includes("log initialized");
+      }, xp: 15 },
+      { desc: "Make a backup copy of 'log.txt' as 'log_backup.txt'", check: () => (fs["/data"] || []).some(f => f.name === "log_backup.txt"), xp: 15 },
+      { desc: "Delete the folder 'notes'", check: () => fs["/notes"] === undefined, xp: 10 }
+    ],
+    [
+      { desc: "Create 'config' folder", check: () => fs["/config"] !== undefined, xp: 10 },
+      { desc: "Add 'settings.json' in 'config'", check: () => (fs["/config"] || []).some(f => f.name === "settings.json"), xp: 15 },
+      { desc: "Edit 'settings.json' with '{debug: true}'", check: () => {
+        const file = (fs["/config"] || []).find(f => f.name === "settings.json");
+        return file && file.content.includes("debug");
+      }, xp: 15 },
+      { desc: "Delete 'tasks.txt' from root", check: () => !(fs["/"] || []).some(f => f.name === "tasks.txt"), xp: 10 },
+      { desc: "Create 'final.txt' in root", check: () => (fs["/"] || []).some(f => f.name === "final.txt"), xp: 10 }
+    ],
+    [
+      { desc: "Create 'archive' folder", check: () => fs["/archive"] !== undefined, xp: 10 },
+      { desc: "Move 'main.js' from 'scripts' to 'archive'", check: () => (fs["/archive"] || []).some(f => f.name === "main.js"), xp: 15 },
+      { desc: "Delete folder 'scripts'", check: () => fs["/scripts"] === undefined, xp: 10 },
+      { desc: "Rename 'final.txt' to 'completed.txt'", check: () => (fs["/"] || []).some(f => f.name === "completed.txt"), xp: 10 },
+      { desc: "Create 'README.md' and write Markdown in it", check: () => {
+        const file = (fs["/"] || []).find(f => f.name === "README.md");
+        return file && (file.content.includes("#") || file.content.includes("##"));
+      }, xp: 15 }
+    ],
+    [
+      { desc: "Create folder 'hidden'", check: () => fs["/hidden"] !== undefined, xp: 10 },
+      { desc: "Inside 'hidden', create 'secrets.md'", check: () => (fs["/hidden"] || []).some(f => f.name === "secrets.md"), xp: 15 },
+      { desc: "Write an encrypted-looking message in 'secrets.md'", check: () => {
+        const file = (fs["/hidden"] || []).find(f => f.name === "secrets.md");
+        return file && /[^\w\s]{5,}/.test(file.content || "");
+      }, xp: 15 },
+      { desc: "Create 'vault.lock'", check: () => (fs["/"] || []).some(f => f.name === "vault.lock"), xp: 10 },
+      { desc: "Delete everything except 'vault.lock' and 'secrets.md'", check: () => {
+        const allowed = new Set(["vault.lock", "hidden", "secrets.md"]);
+        const isClean = Object.keys(fs).every(path => {
+          if (path === "/hidden") {
+            return (fs[path] || []).every(f => f.name === "secrets.md");
+          }
+          if (path === "/") {
+            return (fs[path] || []).every(f => allowed.has(f.name));
+          }
+          return allowed.has(path.slice(1));
+        });
+        return isClean;
+      }, xp: 20 }
+    ]
   ];
 
   if (cmd === "mission") {
@@ -145,31 +295,40 @@ function handleFSCommand(command, cwd) {
     if (!arg) {
       output = `<span style="color:#cccc">Usage:</span>
 mission <span style="color:#33cc33">start</span> – Begin the mission
+mission <span style="color:#ffaa00">resume</span> – Continue current mission
 mission <span style="color:#ffcc00">current</span> – Show progress
+mission <span style="color:#3399ff">level</span> – Show your level and XP
 mission <span style="color:#ff4444">quit</span> – Abandon the mission`;
     } else if (arg === "start") {
-      mission = { index: 0, xp: 0, level: 0, active: true };
+      mission = { level: 0, index: 0, xp: 0, active: true };
       saveMissionState(mission);
-      output = `<span style="color:#33cc33">Mission 1/5:</span> ${missions[0].desc}`;
+      const first = allLevels[0][0];
+      output = `<span style="color:#33cc33">Mission 1/5:</span> ${first.desc}`;
+    } else if (arg === "level") {
+      if (mission && mission.active) {
+        const isSpecial = mission.level === 6;
+        output = `<span style="color:#3399ff">Current Level:</span> ${
+          isSpecial
+            ? `<span class="special-animation"><span class="obf">__special__</span></span>`
+            : levelNames[mission.level]
+        } (XP: ${mission.xp})`;
+
+      } else {
+        output = `<span style="color:#ffaa00">No mission started yet.</span>`;
+      }
     } else if (arg === "quit") {
       localStorage.removeItem("mission-state");
-      appendTerminalOutput("Mission abandoned.</span>");
-    } else if (arg === "resume") {
+      appendTerminalOutput(`<span style="color:#ff4444">Mission abandoned.</span>`);
+      return;
+    } else if (arg === "resume" || arg === "current") {
       if (mission && mission.active) {
-        const m = missions[mission.index];
-        output = `<span style="color:#33cc33">Mission ${mission.index + 1}/5:</span> ${m.desc}`;
+        const m = allLevels[mission.level]?.[mission.index];
+        output = `<span style="color:#33cc33">Mission ${mission.index + 1}/5:</span> ${m?.desc || "All done!"}`;
       } else {
         output = `<span style="color:#ffaa00">No active mission to resume.</span>`;
       }
-    } else if (arg === "current") {
-      if (mission && mission.active) {
-        const m = missions[mission.index];
-        output = `<span style="color:#33cc33">Mission ${mission.index + 1}/5:</span> ${m.desc}`;
-      } else {
-        output = `<span style="color:#ffaa00">No active mission right now.</span>`;
-      }
     } else {
-      appendTerminalOutput("Invalid mission argument</span>");
+      output = `<span style="color:#ff4444">Invalid mission argument</span>`;
     }
 
     appendTerminalOutput(output);
@@ -179,7 +338,9 @@ mission <span style="color:#ff4444">quit</span> – Abandon the mission`;
   if (cmd === "ls") {
     const path = args[0] || cwd;
     output = (fs[path] || []).map(i => i.name).join("  ");
-  } else if (cmd === "cd") {
+  }
+
+  else if (cmd === "cd") {
     const name = args[0];
     const newPath = !name || name === "/" ? "/" : (cwd === "/" ? `/${name}` : `${cwd}/${name}`);
     if (fs[newPath]) {
@@ -187,100 +348,126 @@ mission <span style="color:#ff4444">quit</span> – Abandon the mission`;
     } else {
       output = `cd: no such directory: ${name}`;
     }
-  } else if (cmd === "mkdir") {
+  }
+
+  else if (cmd === "mkdir") {
     const name = args[0];
     const newPath = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
-    if (!name) {
-      output = "mkdir: missing operand";
-    } else if (fs[newPath]) {
-      output = `mkdir: cannot create '${name}': exists`;
-    } else {
+    if (!name) output = "mkdir: missing operand";
+    else if (fs[newPath]) output = `mkdir: cannot create '${name}': exists`;
+    else {
       fs[cwd] = fs[cwd] || [];
       fs[cwd].push({ name, type: "folder" });
       fs[newPath] = [];
     }
-  } else if (cmd === "rm" || cmd === "rmdir") {
+  }
+
+  else if (cmd === "rm" || cmd === "rmdir") {
     const name = args[0];
     const target = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
-    if (!name) {
-      output = `${cmd}: missing operand`;
-    } else {
+    if (!name) output = `${cmd}: missing operand`;
+    else {
       fs[cwd] = (fs[cwd] || []).filter(f => f.name !== name);
       Object.keys(fs).forEach(k => {
         if (k === target || k.startsWith(target + "/")) delete fs[k];
       });
     }
-  } else if (cmd === "touch") {
+  }
+
+  else if (cmd === "touch") {
     const name = args[0];
     const path = cwd === "/" ? `/${name}` : `${cwd}/${name}`;
-    if (!name) {
-      output = "touch: missing operand";
-    } else {
+    if (!name) output = "touch: missing operand";
+    else {
       fs[cwd] = fs[cwd] || [];
       if (!fs[cwd].some(i => i.name === name)) {
         fs[cwd].push({ name, type: "file", content: "" });
         fs[path] = null;
       }
     }
-  } else if (cmd === "echo") {
-    output = args.join(" ");
-  } else if (cmd === "cat") {
-    const name = args[0];
-    const file = (fs[cwd] || []).find(i => i.name === name && i.type === "file");
-    output = file ? (file.content || "") : `cat: ${name}: No such file`;
-  } else if (cmd === "edit") {
+  }
+
+  else if (cmd === "edit") {
     const name = args[0];
     const content = args.slice(1).join(" ");
     const file = (fs[cwd] || []).find(i => i.name === name && i.type === "file");
     if (file) file.content = content;
     else output = `edit: ${name}: No such file`;
-  } else if (cmd === "mv") {
-    const [oldName, newName] = args;
-    const file = (fs[cwd] || []).find(i => i.name === oldName);
-    if (file) file.name = newName;
-    else output = `mv: ${oldName}: No such file or directory`;
-  } else if (cmd === "cp") {
-    const [source, target] = args;
-    const file = (fs[cwd] || []).find(i => i.name === source);
-    if (file) {
-      const copy = JSON.parse(JSON.stringify(file));
-      copy.name = target;
-      fs[cwd].push(copy);
+  }
+
+  else if (cmd === "cat") {
+    const name = args[0];
+    const file = (fs[cwd] || []).find(i => i.name === name && i.type === "file");
+    output = file ? (file.content || "") : `cat: ${name}: No such file`;
+  }
+
+  else if (cmd === "echo") {
+    output = args.join(" ");
+  }
+
+  else if (cmd === "mv" || cmd === "cp") {
+    const [src, dest] = args;
+    const srcPath = resolvePath(cwd, src);
+    const destPath = resolvePath(cwd, dest);
+    const file = getFileFromPath(fs, srcPath);
+    const parent = getParentPath(destPath);
+    const newName = destPath.split("/").pop();
+
+    if (!file || !fs[parent]) {
+      output = `${cmd}: cannot ${cmd === "mv" ? "move" : "copy"}: invalid path`;
     } else {
-      output = `cp: ${source}: No such file or directory`;
+      const newFile = { ...file, name: newName };
+      fs[parent].push(newFile);
+      if (cmd === "mv") deleteFileFromPath(fs, srcPath);
     }
-  } else if (cmd === "clear") {
-    terminal.innerHTML = ''
-  } else if (cmd === "download") {
+  }
+
+  else if (cmd === "clear") {
+    terminal.innerHTML = "";
+  }
+
+  else if (cmd === "download") {
     const link = document.createElement("a");
     link.href = "/download_exe";
     link.download = "Sentrix.exe";
     link.click();
-    output = "Thank you for dowwloading Sentrix. Your download should begin shortly.";
-  } else {
-    output = `Command not found: ${cmd}`;
+    output = "Thank you for downloading Sentrix.";
   }
 
-  if (isMacSim) {
-    window.parent.postMessage({ type: "updateFS", fs }, "*");
-  } else {
-    localStorage.setItem("finder-fakeFS", JSON.stringify(fs));
+  else {
+    output = `Command not found: ${cmd}`;
   }
 
   let mission = getMissionState();
   if (mission && mission.active) {
-    const m = missions[mission.index];
-    if (m && m.check()) {
-      mission.xp += m.xp;
+    const step = allLevels[mission.level]?.[mission.index];
+    if (step && step.check()) {
+      mission.xp += step.xp;
       mission.index++;
-      if (mission.index >= missions.length) {
+
+      const lastLevel = allLevels.length - 1;
+      const isLastLevel = mission.level >= lastLevel;
+      const isLastTask = mission.index >= allLevels[mission.level].length;
+
+      if (isLastLevel && isLastTask) {
+        output += `\n<span class="special-level" style="color:#00ccff">🎉 Level up! You are now '<span class="obf">__special__</span>'</span>`;
+        output += `\n<span style="color:#cccccc">All missions completed!</span>`;
+        mission.active = false;
+      } else if (isLastTask) {
         mission.level++;
         mission.index = 0;
-        output += `\n<span style="color:#00ccff">🎉 Level up! You're now '${levelNames[mission.level] || "Maxed Out"}'</span>`;
+        const newLevel = levelNames[mission.level];
+        if (newLevel === "__special__") {
+          output += `\n<span class="special-level" style="color:#00ccff">🎉 Level up! You are now '<span class="obf">__special__</span>'</span>`;
+        } else {
+          output += `\n<span style="color:#00ccff">🎉 Level up! You are now '${newLevel}'</span>`;
+        }
+        output += `\n<span style="color:#33cc33">Mission 1/5:</span> ${allLevels[mission.level][0].desc}`;
       } else {
         output += `\n<span style="color:#66ff66">✔ Mission Complete!</span>`;
-        output += `\n<span style="color:#33cc33">Mission ${mission.index + 1}/${missions.length}:</span> ${missions[mission.index].desc}`;
+        output += `\n<span style="color:#33cc33">Mission ${mission.index + 1}/5:</span> ${allLevels[mission.level][mission.index].desc}`;
       }
+
       saveMissionState(mission);
     }
   }
@@ -288,6 +475,12 @@ mission <span style="color:#ff4444">quit</span> – Abandon the mission`;
   saveFS();
   appendTerminalOutput(output);
 }
+
+setInterval(() => {
+  if (document.querySelector(".special-animation .obf")) {
+    applyObfAnimation();
+  }
+}, 200);
 
 function sendCommand(inputEl) {
   const command = inputEl.innerText.trim();
